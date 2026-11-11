@@ -24,32 +24,45 @@ function card(m){
   const summaryHtml=summary?`<div class="summary-grid"><div class="summary-block"><h3>Краткое содержание</h3><p>${esc(summary.summary)}</p></div><div class="summary-block"><h3>Решения</h3>${listBlock(summary.decisions)}</div><div class="summary-block"><h3>Задачи</h3>${listBlock(summary.tasks,t=>`${esc(t.text)}${t.owner?` · ${esc(t.owner)}`:''}${t.due?` · ${esc(t.due)}`:''}`)}</div><div class="summary-block"><h3>Открытые вопросы</h3>${listBlock(summary.questions)}</div></div><details class="transcript"><summary>Полная расшифровка</summary><p>${esc(m.transcript)}</p></details>`:'';
   return `<article class="meeting" data-id="${esc(m.id)}"><div class="meeting-head"><div class="meeting-name">${esc(m.name)} <span class="source">${m.source==='cloud'?'Из облака':'Загружено вручную'}</span></div><span class="meeting-date">${dateLabel(m.createdAt)}</span>${status(m)}<span class="chevron">⌄</span></div><div class="meeting-detail">${m.error?`<div class="meeting-error">${esc(m.error)}<br><br>Исправьте причину и загрузите эту запись ещё раз.</div>`:''}${summaryHtml||''}${!summary&&!m.error?'<p class="source-line">Задача сохранена. Этап обновится автоматически.</p>':''}</div></article>`;
 }
-async function refresh(){
-  try { const list=await api('/api/meetings'); $('#count').textContent=list.length; $('#empty').classList.toggle('hidden',list.length>0); meetingList.innerHTML=list.map(card).join(''); }
-  catch(e){if(!passwordRequired)notice(e.message,'error');}
+async function refresh(manual=false){
+  const button=$('#refresh');
+  if(manual){button.disabled=true;button.innerHTML='Обновляем… <span>↻</span>';clearNotice();}
+  try {
+    const list=await api('/api/meetings',{cache:'no-store'});
+    $('#count').textContent=list.length;
+    $('#empty').classList.toggle('hidden',list.length>0);
+    meetingList.innerHTML=list.map(card).join('');
+    if(manual)notice(`Список обновлён. Встреч: ${list.length}.`,'info');
+    return true;
+  } catch(e) {
+    if(manual||!passwordRequired)notice(e.message,'error');
+    return false;
+  } finally {
+    if(manual){button.disabled=false;button.innerHTML='Обновить <span>↻</span>';}
+  }
 }
 meetingList.addEventListener('click',e=>{const head=e.target.closest('.meeting-head');if(head)head.closest('.meeting').classList.toggle('open');});
-$('#refresh').addEventListener('click',refresh);
+$('#refresh').addEventListener('click',()=>refresh(true));
 const drop=$('#dropzone'), fileInput=$('#video');
 drop.addEventListener('click',()=>fileInput.click());
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag');});
 drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
 drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');if(e.dataTransfer.files[0]){fileInput.files=e.dataTransfer.files;updateFile();}});
 fileInput.addEventListener('change',updateFile);
-function updateFile(){const f=fileInput.files[0];if(f)drop.querySelector('strong').textContent=f.name;}
+function updateFile(){const f=fileInput.files[0];const start=$('#localStart');if(f){drop.querySelector('strong').textContent=f.name;start.disabled=false;}else{drop.querySelector('strong').textContent='Перетащите файл сюда';start.disabled=true;}}
 $('#uploadForm').addEventListener('submit',async e=>{
   e.preventDefault(); const file=fileInput.files[0]; if(!file)return notice('Сначала выберите видеофайл.','error');
   if(!/\.(mp4|webm)$/i.test(file.name))return notice('Поддерживаются только файлы MP4 и WebM.','error');
   const button=e.submitter;button.disabled=true;button.firstChild.textContent='Загружаем…';clearNotice();
-  try{const form=new FormData();form.append('video',file);const m=await api('/api/upload',{method:'POST',body:form});fileInput.value='';drop.querySelector('strong').textContent='Перетащите файл сюда';await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice('Файл принят. Обработка началась автоматически.','info');}
-  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Загрузить и анализировать <span>↗</span>';}
+  try{const form=new FormData();form.append('video',file);const m=await api('/api/upload',{method:'POST',body:form});fileInput.value='';updateFile();await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice('Файл принят. Обработка началась автоматически.','info');}
+  catch(err){notice(err.message,'error');}finally{button.disabled=!fileInput.files[0];button.innerHTML='Запустить анализ <span aria-hidden="true">▶</span>'; }
 });
 $('#cloudForm').addEventListener('submit',async e=>{
   e.preventDefault();const button=e.submitter;button.disabled=true;button.firstChild.textContent='Получаем файл…';clearNotice();
   try{const m=await api('/api/cloud',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:$('#cloudUrl').value})});$('#cloudUrl').value='';await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice(m.duplicate?'Такая ссылка уже добавлена. Открыта существующая встреча.':'Ссылка принята. Файл будет загружен и обработан автоматически.','info');}
-  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Добавить из облака <span>↗</span>';}
+  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Запустить анализ <span aria-hidden="true">▶</span>'; }
 });
 $('#settings').addEventListener('click',()=>askPassword());
-$('#passwordForm').addEventListener('submit',e=>{if(e.submitter?.value==='cancel')return;e.preventDefault();password=$('#passwordInput').value;localStorage.setItem('meeting-app-password',password);clearNotice();refresh().then(()=>{if(!$('#notice').classList.contains('error'))passwordDialog.close();else $('#passwordError').textContent='Пароль не принят.';});});
+$('#passwordForm').addEventListener('submit',async e=>{if(e.submitter?.value==='cancel')return;e.preventDefault();password=$('#passwordInput').value;localStorage.setItem('meeting-app-password',password);clearNotice();$('#passwordError').textContent='';const accepted=await refresh();if(accepted)passwordDialog.close();else{password='';localStorage.removeItem('meeting-app-password');$('#passwordError').textContent='Пароль не принят или сервер временно недоступен.';}});
 async function init(){try{const cfg=await fetch('/api/config').then(r=>r.json());passwordRequired=cfg.passwordRequired;$('#fileLimit').textContent=`${Math.round(cfg.maxVideoBytes/1024/1024)} МБ`;if(!cfg.proEnabled)$('#cloudForm').hidden=true;$('#serviceStatus').textContent=cfg.passwordRequired?'Доступ защищён паролем':'Серверная настройка проверяется при обработке';if(passwordRequired&&!password)askPassword();await refresh();}catch{$('#serviceStatus').textContent='Сервер не отвечает';}}
 init();setInterval(refresh,2500);
