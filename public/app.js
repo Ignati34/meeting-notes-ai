@@ -49,18 +49,18 @@ drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag
 drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
 drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');if(e.dataTransfer.files[0]){fileInput.files=e.dataTransfer.files;updateFile();}});
 fileInput.addEventListener('change',updateFile);
-function updateFile(){const f=fileInput.files[0];if(f)drop.querySelector('strong').textContent=f.name;}
+function updateFile(){const f=fileInput.files[0];const start=$('#localStart');if(f){drop.querySelector('strong').textContent=f.name;start.disabled=false;}else{drop.querySelector('strong').textContent='Перетащите файл сюда';start.disabled=true;}}
 $('#uploadForm').addEventListener('submit',async e=>{
   e.preventDefault(); const file=fileInput.files[0]; if(!file)return notice('Сначала выберите видеофайл.','error');
   if(!/\.(mp4|webm)$/i.test(file.name))return notice('Поддерживаются только файлы MP4 и WebM.','error');
   const button=e.submitter;button.disabled=true;button.firstChild.textContent='Загружаем…';clearNotice();
-  try{const form=new FormData();form.append('video',file);const m=await api('/api/upload',{method:'POST',body:form});fileInput.value='';drop.querySelector('strong').textContent='Перетащите файл сюда';await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice('Файл принят. Обработка началась автоматически.','info');}
-  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Загрузить и анализировать <span>↗</span>';}
+  try{const form=new FormData();form.append('video',file);const m=await api('/api/upload',{method:'POST',body:form});fileInput.value='';updateFile();await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice('Файл принят. Обработка началась автоматически.','info');}
+  catch(err){notice(err.message,'error');}finally{button.disabled=!fileInput.files[0];button.innerHTML='Запустить анализ <span aria-hidden="true">▶</span>'; }
 });
 $('#cloudForm').addEventListener('submit',async e=>{
   e.preventDefault();const button=e.submitter;button.disabled=true;button.firstChild.textContent='Получаем файл…';clearNotice();
   try{const m=await api('/api/cloud',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:$('#cloudUrl').value})});$('#cloudUrl').value='';await refresh();document.querySelector(`[data-id="${m.id}"]`)?.classList.add('open');notice(m.duplicate?'Такая ссылка уже добавлена. Открыта существующая встреча.':'Ссылка принята. Файл будет загружен и обработан автоматически.','info');}
-  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Добавить из облака <span>↗</span>';}
+  catch(err){notice(err.message,'error');}finally{button.disabled=false;button.innerHTML='Запустить анализ <span aria-hidden="true">▶</span>'; }
 });
 $('#settings').addEventListener('click',()=>askPassword());
 $('#passwordForm').addEventListener('submit',async e=>{if(e.submitter?.value==='cancel')return;e.preventDefault();password=$('#passwordInput').value;localStorage.setItem('meeting-app-password',password);clearNotice();$('#passwordError').textContent='';const accepted=await refresh();if(accepted)passwordDialog.close();else{password='';localStorage.removeItem('meeting-app-password');$('#passwordError').textContent='Пароль не принят или сервер временно недоступен.';}});
